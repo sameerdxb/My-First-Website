@@ -1,32 +1,198 @@
 <!doctype html>
 <html lang="en">
 <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Date, Day & Time</title>
-    <link rel="stylesheet" href="style.css">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Date, Day, Time + Location, IP, Weather & Traffic</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* Optional: lightweight defaults in case style.css is absent */
+    :root { --bg: #0b0d12; --fg: #e6e8ec; --muted: #a3a9b7; --card: #141821; }
+    html, body { height: 100%; }
+    body { margin: 0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji"; background: var(--bg); color: var(--fg); }
+    .wrap { max-width: 900px; margin: 0 auto; padding: 2rem; display: grid; gap: 1rem; }
+    .big { font-size: clamp(2rem, 5vw, 3rem); font-weight: 700; }
+    .small { font-size: clamp(1rem, 2.4vw, 1.25rem); color: var(--muted); }
+    .grid { display: grid; gap: 0.75rem; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+    .card { background: var(--card); border-radius: 1rem; padding: 1rem 1.25rem; box-shadow: 0 10px 30px rgba(0,0,0,0.2); }
+    .section-title { font-weight: 700; letter-spacing: .4px; margin-bottom: .25rem; color: var(--fg); }
+    .value { color: var(--fg); }
+    .map { width: 100%; height: 420px; border: 0; border-radius: 1rem; overflow: hidden; }
+    .row { display: flex; gap: .75rem; flex-wrap: wrap; align-items: baseline; }
+    .btn { display: inline-block; padding: .6rem .9rem; border-radius: .75rem; background: #2563eb; color: white; text-decoration: none; font-weight: 600; }
+    .hint { font-size: .95rem; color: var(--muted); }
+    .error { color: #ffb4b4; }
+  </style>
 </head>
 <body>
-    <main class="wrap" role="main" aria-live="polite">
-        <div class="big" id="date">Loading date…</div>
-        <div class="small" id="day">Loading day…</div>
-        <div class="small" id="time">Loading time…</div>
-    </main>
+  <main class="wrap" role="main" aria-live="polite">
+    <div class="big" id="date">Loading date…</div>
+    <div class="small" id="day">Loading day…</div>
+    <div class="small" id="time">Loading time…</div>
 
-    <script>
-        function updateDateTime() {
-            const now = new Date();
-            const dayName = now.toLocaleDateString(undefined, { weekday: 'long' });
-            const dateStr = now.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
-            const timeStr = now.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+    <div class="grid">
+      <section class="card" aria-live="polite">
+        <div class="section-title">Location</div>
+        <div class="value" id="location">Detecting your location…</div>
+        <div class="hint" id="tz"></div>
+      </section>
 
-            document.getElementById('day').textContent = dayName;
-            document.getElementById('date').textContent = dateStr;
-            document.getElementById('time').textContent = timeStr;
+      <section class="card" aria-live="polite">
+        <div class="section-title">Public IP</div>
+        <div class="value" id="ip">Fetching your IP…</div>
+      </section>
+
+      <section class="card" aria-live="polite">
+        <div class="section-title">Local Weather (current)</div>
+        <div class="value" id="weather">Loading weather…</div>
+        <div class="hint" id="weather-hint"></div>
+      </section>
+    </div>
+
+    <section class="card" aria-live="polite">
+      <div class="row" style="justify-content: space-between; align-items: center;">
+        <div>
+          <div class="section-title">Live Traffic Near You</div>
+          <div class="hint">Powered by Waze Live Map. Zoom or pan for more detail.</div>
+        </div>
+        <a class="btn" id="gmapsLink" target="_blank" rel="noopener">Open Directions</a>
+      </div>
+      <div style="margin-top: .75rem;">
+        <iframe id="trafficFrame" class="map" title="Live traffic map" loading="lazy" allowfullscreen referrerpolicy="no-referrer-when-downgrade"></iframe>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // --- Date/Time ---
+    function updateDateTime() {
+      const now = new Date();
+      const dayName = now.toLocaleDateString(undefined, { weekday: 'long' });
+      const dateStr = now.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+      const timeStr = now.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+      document.getElementById('day').textContent = dayName;
+      document.getElementById('date').textContent = dateStr;
+      document.getElementById('time').textContent = timeStr;
+      try {
+        const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        document.getElementById('tz').textContent = `Time zone: ${tz}`;
+      } catch (e) {}
+    }
+    updateDateTime();
+    setInterval(updateDateTime, 1000);
+
+    // --- Helpers ---
+    const $ = (id) => document.getElementById(id);
+
+    function setTraffic(lat, lon) {
+      // Waze traffic embed (no API key required)
+      const iframe = $('trafficFrame');
+      iframe.src = `https://embed.waze.com/iframe?zoom=13&lat=${encodeURIComponent(lat)}&lon=${encodeURIComponent(lon)}&pin=1`;
+      // Google Maps directions quicklink (opens in a new tab)
+      const g = $('gmapsLink');
+      g.href = `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(lat)},${encodeURIComponent(lon)}`;
+      g.title = 'Open Google Maps directions to your current location';
+    }
+
+    async function getPublicIP() {
+      try {
+        const res = await fetch('https://api.ipify.org?format=json');
+        if (!res.ok) throw new Error('IP service error');
+        const data = await res.json();
+        return data.ip;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    async function reverseGeocode(lat, lon) {
+      // BigDataCloud is client-friendly and free for basic reverse geocoding
+      const url = `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=${encodeURIComponent(navigator.language || 'en')}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Reverse geocode failed');
+      return res.json();
+    }
+
+    async function getWeather(lat, lon) {
+      // Open-Meteo: no API key needed. Returns current weather.
+      const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Weather fetch failed');
+      return res.json();
+    }
+
+    function describeWeather(current_weather) {
+      if (!current_weather) return 'Unavailable';
+      const { temperature, windspeed, winddirection, weathercode } = current_weather;
+      const codeMap = {
+        0: 'Clear sky', 1: 'Mainly clear', 2: 'Partly cloudy', 3: 'Overcast',
+        45: 'Fog', 48: 'Depositing rime fog', 51: 'Light drizzle', 53: 'Drizzle', 55: 'Dense drizzle',
+        56: 'Freezing drizzle (light)', 57: 'Freezing drizzle (dense)', 61: 'Light rain', 63: 'Rain', 65: 'Heavy rain',
+        66: 'Freezing rain (light)', 67: 'Freezing rain (heavy)', 71: 'Light snow', 73: 'Snow', 75: 'Heavy snow',
+        77: 'Snow grains', 80: 'Rain showers (slight)', 81: 'Rain showers', 82: 'Rain showers (violent)',
+        85: 'Snow showers (slight)', 86: 'Snow showers', 95: 'Thunderstorm', 96: 'Thunderstorm w/ slight hail', 99: 'Thunderstorm w/ heavy hail'
+      };
+      const summary = codeMap[weathercode] || 'Weather';
+      return `${summary} · ${temperature}°C · Wind ${Math.round(windspeed)} km/h (${Math.round(winddirection)}°)`;
+    }
+
+    async function init() {
+      // IP (independent of geolocation permission)
+      getPublicIP().then(ip => {
+        $('ip').textContent = ip || 'Unavailable';
+      });
+
+      if (!('geolocation' in navigator)) {
+        $('location').innerHTML = '<span class="error">Geolocation is not supported by your browser.</span>';
+        $('weather').textContent = 'Unavailable';
+        $('weather-hint').textContent = 'Allow location or switch to a supported browser to see local weather and traffic.';
+        return;
+      }
+
+      navigator.geolocation.getCurrentPosition(async (pos) => {
+        const { latitude: lat, longitude: lon } = pos.coords;
+
+        // Reverse geocode
+        try {
+          const geo = await reverseGeocode(lat, lon);
+          const city = geo.city || geo.locality || geo.principalSubdivision || 'Unknown city';
+          const region = geo.principalSubdivision || geo.locality || '';
+          const country = geo.countryName || '';
+          $('location').textContent = `${city}${region ? ', ' + region : ''}${country ? ', ' + country : ''}  (${lat.toFixed(4)}, ${lon.toFixed(4)})`;
+        } catch (e) {
+          $('location').innerHTML = `${lat.toFixed(4)}, ${lon.toFixed(4)} <span class="hint">(reverse geocode unavailable)</span>`;
         }
 
-        updateDateTime();
-        setInterval(updateDateTime, 1000);
-    </script>
+        // Weather
+        try {
+          const data = await getWeather(lat, lon);
+          $('weather').textContent = describeWeather(data.current_weather);
+          $('weather-hint').textContent = 'Source: Open‑Meteo';
+        } catch (e) {
+          $('weather').textContent = 'Unavailable';
+          $('weather-hint').textContent = 'Could not fetch weather.';
+        }
+
+        // Traffic map
+        setTraffic(lat, lon);
+      }, (err) => {
+        const messages = {
+          1: 'Permission denied. Please allow location access to show city, weather, and traffic.',
+          2: 'Position unavailable. Try again later.',
+          3: 'Timeout acquiring position. Try again.'
+        };
+        $('location').innerHTML = `<span class="error">${messages[err.code] || 'Unable to get your location.'}</span>`;
+        $('weather').textContent = 'Unavailable';
+        $('weather-hint').textContent = 'Enable location to see local weather.';
+        // Provide a generic traffic view (world view)
+        $('trafficFrame').src = 'https://embed.waze.com/iframe?zoom=2&lat=0&lon=0';
+        $('gmapsLink').removeAttribute('href');
+        $('gmapsLink').setAttribute('aria-disabled', 'true');
+        $('gmapsLink').textContent = 'Directions (enable location)';
+      }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 });
+    }
+
+    init();
+  </script>
 </body>
 </html>
